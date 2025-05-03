@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Arduino Serial Monitor</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0e1a35;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 40px;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+    }
+
+    .controls {
+      margin-bottom: 20px;
+    }
+
+    button {
+      padding: 10px 20px;
+      margin: 0 10px;
+      border: none;
+      background-color: #4285f4;
+      color: white;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s;
+    }
+
+    button:hover {
+      background-color: #3367d6;
+    }
+
+    button:disabled {
+      background-color: #999;
+      cursor: not-allowed;
+    }
+
+    #outputContainer {
+      background: rgba(255, 255, 255, 0.05);
+      box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.2);
+      border-radius: 10px;
+      width: 360px;
+      height: 260px;
+      overflow-y: auto;
+      padding: 16px;
+      line-height: 1.4em;
+      font-family: monospace;
+      font-size: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    #output {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .status {
+      margin-top: 10px;
+      color: #4CAF50;
+      font-size: 12px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h1>Arduino Serial Monitor</h1>
+
+  <div class="controls">
+    <button id="connect">Connect</button>
+    <button id="start">Start Arduino</button>
+    <button id="save">Save Data</button>
+    <button id="process">Process</button>
+    <button id="download" disabled>Download STL</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div id="outputContainer">
+    <div id="output"></div>
+  </div>
+
+  <script>
+    let port;
+    let writer;
+    let serialData = '';
+    let hasProcessedData = false;
+
+    const connectButton = document.getElementById("connect");
+    const startButton = document.getElementById("start");
+    const saveButton = document.getElementById("save");
+    const processButton = document.getElementById("process");
+    const downloadButton = document.getElementById("download");
+    const output = document.getElementById("output");
+    const outputContainer = document.getElementById("outputContainer");
+    const status = document.getElementById("status");
+
+    // Check if browser supports Web Serial API
+    if (!navigator.serial) {
+      status.innerHTML = "Web Serial API not supported in this browser. Try Chrome or Edge.";
+      status.style.color = "#ff4444";
+      connectButton.disabled = true;
+      startButton.disabled = true;
+    }
+
+    connectButton.addEventListener("click", async () => {
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 9600 });
+
+        const decoder = new TextDecoderStream();
+        const inputDone = port.readable.pipeTo(decoder.writable);
+        const inputStream = decoder.readable;
+        const reader = inputStream.getReader();
+
+        const encoder = new TextEncoderStream();
+        const outputDone = encoder.readable.pipeTo(port.writable);
+        writer = encoder.writable.getWriter();
+
+        output.innerHTML += "Connected.<br>";
+        status.innerHTML = "Serial port connected successfully";
+        connectButton.disabled = true;
+        startButton.disabled = false;
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value) {
+            const safeValue = value.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            output.innerHTML += safeValue.replace(/\n/g, "<br>");
+            outputContainer.scrollTop = outputContainer.scrollHeight;
+            serialData += value;
+          }
+        }
+
+        reader.releaseLock();
+      } catch (err) {
+        console.error("Error:", err);
+        output.innerHTML += `<br><b>Error:</b> ${err.message}`;
+        status.innerHTML = `Error: ${err.message}`;
+        status.style.color = "#ff4444";
+      }
+    });
+
+    startButton.addEventListener("click", async () => {
+      if (writer) {
+        await writer.write("start\n");
+        output.innerHTML += "<br><i>Sent: start</i><br>";
+        outputContainer.scrollTop = outputContainer.scrollHeight;
+        status.innerHTML = "Start command sent to Arduino";
+      } else {
+        status.innerHTML = "Please connect to a serial port first";
+        status.style.color = "#ff4444";
+      }
+    });
+
+    saveButton.addEventListener("click", async () => {
+      status.innerHTML = "Saving data...";
+      try {
+        const response = await fetch("/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: serialData })
+        });
+
+        if (response.ok) {
+          const result = await response.text();
+          status.innerHTML = "Data saved successfully";
+          status.style.color = "#4CAF50";
+          processButton.disabled = false;
+        } else {
+          const error = await response.text();
+          status.innerHTML = `Error: ${error}`;
+          status.style.color = "#ff4444";
+        }
+      } catch (err) {
+        status.innerHTML = `Error: ${err.message}`;
+        status.style.color = "#ff4444";
+      }
+    });
+
+    document.getElementById("process").addEventListener("click", async () => {
+      status.innerHTML = "Processing data...";
+      try {
+        const response = await fetch("/process", { method: "POST" });
+
+        if (response.ok) {
+          const result = await response.text();
+          status.innerHTML = "Processing complete. STL file is ready for download.";
+          status.style.color = "#4CAF50";
+          downloadButton.disabled = false;
+          hasProcessedData = true;
+        } else {
+          const error = await response.text();
+          status.innerHTML = `Error: ${error}`;
+          status.style.color = "#ff4444";
+        }
+      } catch (err) {
+        status.innerHTML = `Error: ${err.message}`;
+        status.style.color = "#ff4444";
+      }
+    });
+
+    document.getElementById("download").addEventListener("click", () => {
+      if (hasProcessedData) {
+        window.location.href = "/download-stl";
+        status.innerHTML = "Downloading STL file...";
+      } else {
+        status.innerHTML = "No STL file available. Please process data first.";
+        status.style.color = "#ff4444";
+      }
+    });
+  </script>
+</body>
+
+</html>

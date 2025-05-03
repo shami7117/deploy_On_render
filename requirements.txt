@@ -1,0 +1,6 @@
+flask
+gunicorn
+numpy
+scipy
+numpy-stl
+# Add other dependencies your app uses
