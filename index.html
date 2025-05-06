@@ -68,10 +68,31 @@
       color: #4CAF50;
       font-size: 12px;
     }
+
+    .user-action {
+      position: absolute;
+      top: 10px;
+      right: 20px;
+    }
+
+    .logout-btn {
+      padding: 6px 12px;
+      background-color: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      font-size: 12px;
+    }
+
+    .logout-btn:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+    }
   </style>
 </head>
 
 <body>
+
+  <div class="user-action">
+    <a href="/logout"><button class="logout-btn">Logout</button></a>
+  </div>
 
   <h1>Arduino Serial Monitor</h1>
 

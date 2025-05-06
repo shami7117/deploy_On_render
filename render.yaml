@@ -9,3 +9,5 @@ services:
         generateValue: true
       - key: PYTHON_VERSION
         value: 3.9
+      - key: LICENSE_KEYS
+        sync: false # This ensures the value is not overwritten on redeploy
