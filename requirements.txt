@@ -3,4 +3,5 @@ gunicorn
 numpy
 scipy
 numpy-stl
+werkzeug
 # Add other dependencies your app uses
