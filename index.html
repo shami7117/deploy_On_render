@@ -85,6 +85,70 @@
     .logout-btn:hover {
       background-color: rgba(255, 255, 255, 0.1);
     }
+
+    /* New styles for 3D viewer */
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      max-width: 1200px;
+    }
+
+    .row {
+      display: flex;
+      width: 100%;
+      margin-top: 20px;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+
+    #viewerContainer {
+      background: rgba(255, 255, 255, 0.05);
+      box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.2);
+      border-radius: 10px;
+      width: 500px;
+      height: 400px;
+      margin-left: 20px;
+      display: none;
+      position: relative;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      overflow: hidden;
+    }
+
+    #stlViewer {
+      width: 100%;
+      height: 100%;
+    }
+
+    #viewerControls {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      z-index: 100;
+    }
+
+    #viewerControls button {
+      padding: 5px 10px;
+      font-size: 12px;
+      opacity: 0.8;
+    }
+
+    @media (max-width: 900px) {
+      .row {
+        flex-direction: column;
+        align-items: center;
+      }
+
+      #viewerContainer {
+        margin-left: 0;
+        margin-top: 20px;
+        width: 360px;
+      }
+    }
   </style>
 </head>
 
@@ -96,25 +160,44 @@
 
   <h1>Arduino Serial Monitor</h1>
 
-  <div class="controls">
-    <button id="connect">Connect</button>
-    <button id="start">Start Arduino</button>
-    <button id="save">Save Data</button>
-    <button id="process">Process</button>
-    <button id="download" disabled>Download STL</button>
+  <div class="container">
+    <div class="controls">
+      <button id="connect">Connect</button>
+      <button id="start">Start Arduino</button>
+      <button id="save">Save Data</button>
+      <button id="process">Process</button>
+      <button id="download" disabled>Download STL</button>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <div class="row">
+      <div id="outputContainer">
+        <div id="output"></div>
+      </div>
+
+      <div id="viewerContainer">
+        <div id="stlViewer"></div>
+        <div id="viewerControls">
+          <button id="resetView">Reset View</button>
+          <button id="wireframeToggle">Wireframe</button>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <div class="status" id="status"></div>
-
-  <div id="outputContainer">
-    <div id="output"></div>
-  </div>
+  <!-- Load Three.js and STL loader from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/loaders/STLLoader.js"></script>
 
   <script>
     let port;
     let writer;
     let serialData = '';
     let hasProcessedData = false;
+    let scene, camera, renderer, controls, mesh;
+    let wireframeMode = false;
 
     const connectButton = document.getElementById("connect");
     const startButton = document.getElementById("start");
@@ -124,6 +207,9 @@
     const output = document.getElementById("output");
     const outputContainer = document.getElementById("outputContainer");
     const status = document.getElementById("status");
+    const viewerContainer = document.getElementById("viewerContainer");
+    const resetViewBtn = document.getElementById("resetView");
+    const wireframeToggleBtn = document.getElementById("wireframeToggle");
 
     // Check if browser supports Web Serial API
     if (!navigator.serial) {
@@ -209,7 +295,7 @@
       }
     });
 
-    document.getElementById("process").addEventListener("click", async () => {
+    processButton.addEventListener("click", async () => {
       status.innerHTML = "Processing data...";
       try {
         const response = await fetch("/process", { method: "POST" });
@@ -220,6 +306,13 @@
           status.style.color = "#4CAF50";
           downloadButton.disabled = false;
           hasProcessedData = true;
+
+          // Show the viewer container
+          viewerContainer.style.display = "block";
+
+          // Initialize or update the 3D viewer
+          initViewer();
+          loadSTL();
         } else {
           const error = await response.text();
           status.innerHTML = `Error: ${error}`;
@@ -231,7 +324,7 @@
       }
     });
 
-    document.getElementById("download").addEventListener("click", () => {
+    downloadButton.addEventListener("click", () => {
       if (hasProcessedData) {
         window.location.href = "/download-stl";
         status.innerHTML = "Downloading STL file...";
@@ -240,6 +333,137 @@
         status.style.color = "#ff4444";
       }
     });
+
+    // ThreeJS functions
+    function initViewer() {
+      const container = document.getElementById('stlViewer');
+
+      // If renderer already exists, return early
+      if (renderer) return;
+
+      // Scene setup
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x1a2b42);
+
+      // Camera setup
+      camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+      camera.position.z = 30;
+
+      // Renderer setup
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      container.innerHTML = '';
+      container.appendChild(renderer.domElement);
+
+      // Controls setup
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.25;
+
+      // Lights
+      const ambientLight = new THREE.AmbientLight(0x404040, 1);
+      scene.add(ambientLight);
+
+      const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+      directionalLight1.position.set(1, 1, 1);
+      scene.add(directionalLight1);
+
+      const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.5);
+      directionalLight2.position.set(-1, -1, -1);
+      scene.add(directionalLight2);
+
+      // Handle window resize
+      window.addEventListener('resize', onWindowResize);
+
+      // Start animation loop
+      animate();
+    }
+
+    function onWindowResize() {
+      const container = document.getElementById('stlViewer');
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    function loadSTL() {
+      // Create a unique URL with a timestamp to avoid caching
+      const stlURL = `/download-stl?t=${new Date().getTime()}`;
+      const loader = new THREE.STLLoader();
+
+      // Remove existing mesh if it exists
+      if (mesh) {
+        scene.remove(mesh);
+      }
+
+      // Show loading status
+      status.innerHTML = "Loading STL viewer...";
+
+      loader.load(stlURL, function (geometry) {
+        // Center the geometry
+        geometry.computeBoundingBox();
+        const center = geometry.boundingBox.getCenter(new THREE.Vector3());
+        geometry.translate(-center.x, -center.y, -center.z);
+
+        // Create material
+        const material = new THREE.MeshPhongMaterial({
+          color: 0x4285f4,
+          specular: 0x111111,
+          shininess: 200
+        });
+
+        // Create mesh
+        mesh = new THREE.Mesh(geometry, material);
+
+        // Scale to fit view (if needed)
+        geometry.computeBoundingSphere();
+        const radius = geometry.boundingSphere.radius;
+        const scale = 10 / radius; // Adjust scaling factor as needed
+        mesh.scale.set(scale, scale, scale);
+
+        // Add to scene
+        scene.add(mesh);
+
+        // Reset camera
+        resetView();
+
+        status.innerHTML = "STL loaded successfully! Use mouse to rotate, scroll to zoom.";
+      }, undefined, function (error) {
+        status.innerHTML = "Error loading STL: " + error;
+        status.style.color = "#ff4444";
+      });
+    }
+
+    function resetView() {
+      if (!camera || !controls) return;
+
+      // Reset camera position
+      camera.position.set(0, 0, 30);
+      camera.lookAt(0, 0, 0);
+
+      // Reset controls
+      controls.reset();
+    }
+
+    function toggleWireframe() {
+      if (!mesh) return;
+
+      wireframeMode = !wireframeMode;
+      mesh.material.wireframe = wireframeMode;
+
+      // Update button text
+      wireframeToggleBtn.textContent = wireframeMode ? "Solid" : "Wireframe";
+    }
+
+    // Add event listeners for viewer controls
+    resetViewBtn.addEventListener('click', resetView);
+    wireframeToggleBtn.addEventListener('click', toggleWireframe);
   </script>
 </body>
 

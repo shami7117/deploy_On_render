@@ -4,4 +4,4 @@ numpy
 scipy
 numpy-stl
 werkzeug
-# Add other dependencies your app uses
+python-dotenv

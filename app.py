@@ -127,7 +127,13 @@ def download_stl():
     stl_path = session.get('stl_path', os.path.join(UPLOAD_FOLDER, f'generated_model_{user_id}.stl'))
     
     if os.path.exists(stl_path):
-        return send_file(stl_path, as_attachment=True, download_name="generated_model.stl")
+        # Check if this is a direct download (attachment) or for 3D preview
+        is_attachment = 't' not in request.args
+        return send_file(
+            stl_path, 
+            as_attachment=is_attachment, 
+            download_name="generated_model.stl" if is_attachment else None
+        )
     else:
         return "STL file not found. Please process data first.", 404
 
