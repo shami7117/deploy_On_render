@@ -44,6 +44,24 @@
       cursor: not-allowed;
     }
 
+    /* Style for the stop button */
+    #stop {
+      background-color: #f44336;
+    }
+
+    #stop:hover {
+      background-color: #d32f2f;
+    }
+
+    /* Style for the disconnect button */
+    #disconnect {
+      background-color: #ff9800;
+    }
+
+    #disconnect:hover {
+      background-color: #f57c00;
+    }
+
     #outputContainer {
       background: rgba(255, 255, 255, 0.05);
       box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.2);
@@ -163,7 +181,9 @@
   <div class="container">
     <div class="controls">
       <button id="connect">Connect</button>
+      <button id="disconnect" disabled>Disconnect</button>
       <button id="start">Start Arduino</button>
+      <button id="stop" disabled>Stop & Clear</button>
       <button id="save">Save Data</button>
       <button id="process">Process</button>
       <button id="download" disabled>Download STL</button>
@@ -188,17 +208,26 @@
 
   <!-- Load Three.js Library and its modules correctly -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Load OrbitControls and STLLoader directly, not dynamically -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/loaders/STLLoader.js"></script>
 
   <script>
     let port;
     let writer;
+    let reader;
+    let readableStreamClosed;
+    let writableStreamClosed;
     let serialData = '';
     let hasProcessedData = false;
     let scene, camera, renderer, controls, mesh;
     let wireframeMode = false;
+    let isConnected = false;
 
     const connectButton = document.getElementById("connect");
+    const disconnectButton = document.getElementById("disconnect");
     const startButton = document.getElementById("start");
+    const stopButton = document.getElementById("stop");
     const saveButton = document.getElementById("save");
     const processButton = document.getElementById("process");
     const downloadButton = document.getElementById("download");
@@ -211,13 +240,16 @@
 
     // Initialize buttons state
     startButton.disabled = true;
+    stopButton.disabled = true;
     processButton.disabled = true;
+    saveButton.disabled = true;
 
     // Check if browser supports Web Serial API
     if (!navigator.serial) {
       status.innerHTML = "Web Serial API not supported in this browser. Try Chrome or Edge.";
       status.style.color = "#ff4444";
       connectButton.disabled = true;
+      disconnectButton.disabled = true;
       startButton.disabled = true;
     }
 
@@ -227,19 +259,34 @@
         await port.open({ baudRate: 9600 });
 
         const decoder = new TextDecoderStream();
-        const inputDone = port.readable.pipeTo(decoder.writable);
+        readableStreamClosed = port.readable.pipeTo(decoder.writable);
         const inputStream = decoder.readable;
-        const reader = inputStream.getReader();
+        reader = inputStream.getReader();
 
         const encoder = new TextEncoderStream();
-        const outputDone = encoder.readable.pipeTo(port.writable);
+        writableStreamClosed = encoder.readable.pipeTo(port.writable);
         writer = encoder.writable.getWriter();
 
         output.innerHTML += "Connected.<br>";
         status.innerHTML = "Serial port connected successfully";
         connectButton.disabled = true;
+        disconnectButton.disabled = false;
         startButton.disabled = false;
+        isConnected = true;
 
+        // Start reading loop
+        readLoop();
+      } catch (err) {
+        console.error("Error:", err);
+        output.innerHTML += `<br><b>Error:</b> ${err.message}`;
+        status.innerHTML = `Error: ${err.message}`;
+        status.style.color = "#ff4444";
+      }
+    });
+
+    // Function to continuously read from the serial port
+    async function readLoop() {
+      try {
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
@@ -250,13 +297,55 @@
             serialData += value;
           }
         }
+      } catch (error) {
+        console.error("Read loop error:", error);
+        if (isConnected) {
+          output.innerHTML += `<br><b>Error during read:</b> ${error.message}`;
+        }
+      }
+    }
 
-        reader.releaseLock();
-      } catch (err) {
-        console.error("Error:", err);
-        output.innerHTML += `<br><b>Error:</b> ${err.message}`;
-        status.innerHTML = `Error: ${err.message}`;
-        status.style.color = "#ff4444";
+    // New disconnect button handler
+    disconnectButton.addEventListener("click", async () => {
+      if (isConnected) {
+        try {
+          // Release the writer
+          if (writer) {
+            await writer.close();
+          }
+
+          // Release the reader
+          if (reader) {
+            await reader.cancel();
+          }
+
+          // Close the port
+          if (port) {
+            await port.close();
+          }
+
+          // Reset the connection state
+          isConnected = false;
+          port = null;
+          writer = null;
+          reader = null;
+
+          // Update UI
+          connectButton.disabled = false;
+          disconnectButton.disabled = true;
+          startButton.disabled = true;
+          stopButton.disabled = true;
+
+          // Update status
+          status.innerHTML = "Disconnected from serial port";
+          status.style.color = "#ff9800";
+          output.innerHTML += "<br><i>Disconnected from serial port</i><br>";
+          outputContainer.scrollTop = outputContainer.scrollHeight;
+        } catch (err) {
+          console.error("Disconnect error:", err);
+          status.innerHTML = `Error disconnecting: ${err.message}`;
+          status.style.color = "#ff4444";
+        }
       }
     });
 
@@ -267,6 +356,33 @@
         outputContainer.scrollTop = outputContainer.scrollHeight;
         status.innerHTML = "Start command sent to Arduino";
         saveButton.disabled = false;
+        stopButton.disabled = false;
+      } else {
+        status.innerHTML = "Please connect to a serial port first";
+        status.style.color = "#ff4444";
+      }
+    });
+
+    // New stop button handler
+    stopButton.addEventListener("click", async () => {
+      if (writer) {
+        try {
+          // Send stop command to Arduino
+          await writer.write("stop\n");
+          output.innerHTML += "<br><i>Sent: stop</i><br>";
+
+          // Clear the dashboard display
+          serialData = '';
+          output.innerHTML += "<br><i>Data cleared</i><br>";
+          outputContainer.scrollTop = outputContainer.scrollHeight;
+
+          status.innerHTML = "Arduino stopped and data cleared";
+          status.style.color = "#4CAF50";
+        } catch (err) {
+          console.error("Stop error:", err);
+          status.innerHTML = `Error stopping Arduino: ${err.message}`;
+          status.style.color = "#ff4444";
+        }
       } else {
         status.innerHTML = "Please connect to a serial port first";
         status.style.color = "#ff4444";
@@ -310,19 +426,12 @@
           downloadButton.disabled = false;
           hasProcessedData = true;
 
-          // Show the viewer container
+          // Show the viewer container and initialize the viewer
           viewerContainer.style.display = "block";
 
-          // Load the necessary Three.js components first before initializing viewer
-          loadThreeJsModules().then(() => {
-            // Initialize or update the 3D viewer
-            initViewer();
-            loadSTL();
-          }).catch(error => {
-            console.error("Error loading Three.js modules:", error);
-            status.innerHTML = "Error loading 3D viewer components: " + error;
-            status.style.color = "#ff4444";
-          });
+          // Initialize the 3D viewer directly
+          initViewer();
+          loadSTL();
         } else {
           const error = await response.text();
           status.innerHTML = `Error: ${error}`;
@@ -344,37 +453,6 @@
       }
     });
 
-    // Dynamically load required Three.js modules
-    async function loadThreeJsModules() {
-      console.log("Loading Three.js modules...");
-
-      // Function to load scripts
-      function loadScript(url) {
-        return new Promise((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = url;
-          script.onload = resolve;
-          script.onerror = reject;
-          document.body.appendChild(script);
-        });
-      }
-
-      try {
-        // Load STLLoader
-        await loadScript("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/loaders/STLLoader.js");
-        console.log("STLLoader loaded successfully");
-
-        // Load OrbitControls
-        await loadScript("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/controls/OrbitControls.js");
-        console.log("OrbitControls loaded successfully");
-
-        return true;
-      } catch (error) {
-        console.error("Error loading scripts:", error);
-        throw error;
-      }
-    }
-
     // ThreeJS functions
     function initViewer() {
       const container = document.getElementById('stlViewer');
@@ -383,11 +461,6 @@
       if (renderer) return;
 
       console.log("Initializing Three.js viewer");
-
-      // Check if required components are available
-      console.log("THREE object:", typeof THREE);
-      console.log("OrbitControls exists:", typeof THREE.OrbitControls === 'function');
-      console.log("STLLoader exists:", typeof THREE.STLLoader === 'function');
 
       // Scene setup
       scene = new THREE.Scene();
@@ -403,12 +476,8 @@
       container.innerHTML = '';
       container.appendChild(renderer.domElement);
 
-      // Controls setup
+      // Controls setup - now THREE.OrbitControls should be available
       try {
-        if (typeof THREE.OrbitControls !== 'function') {
-          throw new Error("THREE.OrbitControls is not available");
-        }
-
         controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.25;
@@ -459,14 +528,7 @@
 
       console.log("Loading STL from URL:", stlURL);
 
-      // Make sure we have the STLLoader available
-      if (typeof THREE.STLLoader !== 'function') {
-        console.error("THREE.STLLoader not available");
-        status.innerHTML = "Error: THREE.STLLoader not available";
-        status.style.color = "#ff4444";
-        return;
-      }
-
+      // Create STL loader
       const loader = new THREE.STLLoader();
 
       // Remove existing mesh if it exists

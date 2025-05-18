@@ -136,6 +136,7 @@ def download_stl():
         )
     else:
         return "STL file not found. Please process data first.", 404
+    
 
 @app.route('/logout')
 def logout():
