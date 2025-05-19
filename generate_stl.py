@@ -3,7 +3,49 @@ from scipy.ndimage import gaussian_filter
 from stl import mesh
 
 def generate_stl_from_scan(input_txt_path, output_stl_path, z_delta=0.2, center_distance=6.5, max_distance=20, interp_res=1, sigma=1.25):
-    raw = np.loadtxt(input_txt_path)
+    # Read the file as text first to clean problematic characters
+    with open(input_txt_path, 'r', errors='ignore') as f:
+        lines = f.readlines()
+    
+    # Clean the lines to remove non-ASCII characters and normalize values
+    cleaned_lines = []
+    for line in lines:
+        # Strip and clean the line
+        line = line.strip()
+        if not line:  # Skip empty lines
+            continue
+        
+        # Remove any non-ASCII characters
+        line = ''.join([c for c in line if ord(c) < 128])
+        
+        # If it's our delimiter value
+        if '9999' in line:
+            cleaned_lines.append('9999')
+        else:
+            # Try to convert to float and add to cleaned lines
+            try:
+                val = float(line)
+                cleaned_lines.append(str(val))
+            except ValueError:
+                # If conversion fails, try to extract numeric part
+                import re
+                numeric_part = re.search(r'(\d+\.\d+)', line)
+                if numeric_part:
+                    cleaned_lines.append(numeric_part.group(1))
+    
+    # Write cleaned data to a temporary file
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as temp_file:
+        temp_file_path = temp_file.name
+        temp_file.write('\n'.join(cleaned_lines))
+    
+    # Now load the cleaned data
+    try:
+        raw = np.loadtxt(temp_file_path)
+    except Exception as e:
+        raise ValueError(f"Failed to load data after cleaning: {e}")
+    
+    # Continue with the rest of the function
     raw[raw < 0] = 0
     delimiters = np.where(raw == 9999)[0]
 
@@ -91,4 +133,12 @@ def generate_stl_from_scan(input_txt_path, output_stl_path, z_delta=0.2, center_
         model.vectors[i] = f
 
     model.save(output_stl_path)
+    
+    # Clean up the temporary file
+    import os
+    try:
+        os.unlink(temp_file_path)
+    except:
+        pass
+        
     return output_stl_path
