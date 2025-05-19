@@ -14,15 +14,15 @@
       align-items: center;
       padding-top: 40px;
     }
-
+  
     h1 {
       margin-bottom: 20px;
     }
-
+  
     .controls {
       margin-bottom: 20px;
     }
-
+  
     button {
       padding: 10px 20px;
       margin: 0 10px;
@@ -34,85 +34,105 @@
       font-size: 14px;
       transition: background-color 0.2s;
     }
-
+  
     button:hover {
       background-color: #3367d6;
     }
-
+  
     button:disabled {
       background-color: #999;
       cursor: not-allowed;
     }
-
+  
     /* Style for the stop button */
     #stop {
       background-color: #f44336;
     }
-
+  
     #stop:hover {
       background-color: #d32f2f;
     }
-
+  
     /* Style for the disconnect button */
     #disconnect {
       background-color: #ff9800;
     }
-
+  
     #disconnect:hover {
       background-color: #f57c00;
     }
-
-    #outputContainer {
+  
+    /* Common styles for both containers */
+    .content-container {
       background: rgba(255, 255, 255, 0.05);
       box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.2);
       border-radius: 10px;
       width: 500px;
       height: 400px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      position: relative;
+      box-sizing: border-box;
+      /* Ensure padding is included in width/height */
+    }
+  
+    #outputContainer {
       overflow-y: auto;
       padding: 16px;
       line-height: 1.4em;
       font-family: monospace;
       font-size: 14px;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      position: relative;
     }
-
+  
+    #viewerContainer {
+      overflow: hidden;
+      padding: 0;
+      /* No padding for viewer to maximize canvas space */
+    }
+  
+    .container-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  
     .container-title {
-      position: absolute;
-      top: -30px;
-      left: 0;
+      color: #ffffff;
       font-size: 18px;
       font-weight: bold;
+      margin-bottom: 10px;
+      padding-left: 5px;
     }
-
+  
     #output {
       white-space: pre-wrap;
+      width: 100%;
+      height: 100%;
       word-wrap: break-word;
     }
-
+  
     .status {
       margin-top: 10px;
       color: #4CAF50;
       font-size: 12px;
     }
-
+  
     .user-action {
       position: absolute;
       top: 10px;
       right: 20px;
     }
-
+  
     .logout-btn {
       padding: 6px 12px;
       background-color: transparent;
       border: 1px solid rgba(255, 255, 255, 0.3);
       font-size: 12px;
     }
-
+  
     .logout-btn:hover {
       background-color: rgba(255, 255, 255, 0.1);
     }
-
+  
     .container {
       display: flex;
       flex-direction: column;
@@ -120,32 +140,23 @@
       width: 100%;
       max-width: 1200px;
     }
-
+  
     .row {
       display: flex;
       width: 100%;
       margin-top: 40px;
-      justify-content: space-between;
+      justify-content: center;
+      gap: 20px;
       flex-wrap: wrap;
     }
-
-    #viewerContainer {
-      background: rgba(255, 255, 255, 0.05);
-      box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.2);
-      border-radius: 10px;
-      width: 500px;
-      height: 400px;
-      margin-left: 20px;
-      position: relative;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      overflow: hidden;
-    }
-
+  
     #stlViewer {
       width: 100%;
       height: 100%;
+      border-radius: 10px;
+      /* Match the parent container's border radius */
     }
-
+  
     #viewerControls {
       position: absolute;
       bottom: 10px;
@@ -155,13 +166,13 @@
       gap: 10px;
       z-index: 100;
     }
-
+  
     #viewerControls button {
       padding: 5px 10px;
       font-size: 12px;
       opacity: 0.8;
     }
-
+  
     #placeholderText {
       position: absolute;
       top: 50%;
@@ -171,17 +182,15 @@
       color: rgba(255, 255, 255, 0.5);
       font-style: italic;
     }
-
+  
     @media (max-width: 1060px) {
       .row {
         flex-direction: column;
         align-items: center;
       }
-
+  
       #viewerContainer {
-        margin-left: 0;
         margin-top: 40px;
-        width: 500px;
       }
     }
   </style>
@@ -209,21 +218,24 @@
     <div class="status" id="status"></div>
 
     <div class="row">
-      <div id="outputContainer">
+      <div class="container-wrapper">
         <div class="container-title">Arduino Serial Monitor</div>
-        <div id="output"></div>
-      </div>
-
-      <div id="viewerContainer">
-        <div class="container-title">3D Viewer</div>
-        <div id="placeholderText">Process data to view 3D model</div>
-        <div id="stlViewer"></div>
-        <div id="viewerControls">
-          <button id="resetView">Reset View</button>
-          <button id="wireframeToggle">Wireframe</button>
+        <div id="outputContainer" class="content-container">
+          <div id="output"></div>
         </div>
       </div>
-    </div>
+    
+      <div class="container-wrapper">
+        <div class="container-title">3D Viewer</div>
+        <div id="viewerContainer" class="content-container">
+          <div id="placeholderText">Process data to view 3D model</div>
+          <div id="stlViewer"></div>
+          <div id="viewerControls">
+            <button id="resetView">Reset View</button>
+            <button id="wireframeToggle">Wireframe</button>
+          </div>
+        </div>
+      </div>
   </div>
 
   <!-- Load Three.js Library and its modules - Updated to newer versions -->
