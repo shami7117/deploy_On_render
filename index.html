@@ -104,7 +104,6 @@
       background-color: rgba(255, 255, 255, 0.1);
     }
 
-    /* New styles for 3D viewer */
     .container {
       display: flex;
       flex-direction: column;
@@ -206,11 +205,10 @@
     </div>
   </div>
 
-  <!-- Load Three.js Library and its modules correctly -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <!-- Load OrbitControls and STLLoader directly, not dynamically -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/controls/OrbitControls.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/loaders/STLLoader.js"></script>
+  <!-- Load Three.js Library and its modules - Updated to newer versions -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r132/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/STLLoader.js"></script>
 
   <script>
     let port;
@@ -223,6 +221,7 @@
     let scene, camera, renderer, controls, mesh;
     let wireframeMode = false;
     let isConnected = false;
+    let isReaderActive = false;
 
     const connectButton = document.getElementById("connect");
     const disconnectButton = document.getElementById("disconnect");
@@ -262,6 +261,7 @@
         readableStreamClosed = port.readable.pipeTo(decoder.writable);
         const inputStream = decoder.readable;
         reader = inputStream.getReader();
+        isReaderActive = true;
 
         const encoder = new TextEncoderStream();
         writableStreamClosed = encoder.readable.pipeTo(port.writable);
@@ -287,9 +287,12 @@
     // Function to continuously read from the serial port
     async function readLoop() {
       try {
-        while (true) {
+        while (isReaderActive) {
           const { value, done } = await reader.read();
-          if (done) break;
+          if (done) {
+            console.log("Reader done");
+            break;
+          }
           if (value) {
             const safeValue = value.replace(/</g, "&lt;").replace(/>/g, "&gt;");
             output.innerHTML += safeValue.replace(/\n/g, "<br>");
@@ -302,50 +305,84 @@
         if (isConnected) {
           output.innerHTML += `<br><b>Error during read:</b> ${error.message}`;
         }
+      } finally {
+        console.log("Read loop exited");
       }
     }
 
-    // New disconnect button handler
+    // Improved disconnect button handler with safety checks
     disconnectButton.addEventListener("click", async () => {
-      if (isConnected) {
-        try {
-          // Release the writer
-          if (writer) {
-            await writer.close();
-          }
+      try {
+        // Set flag to exit read loop
+        isReaderActive = false;
 
-          // Release the reader
-          if (reader) {
+        // Cancel reader first if it exists
+        if (reader) {
+          try {
             await reader.cancel();
+            console.log("Reader cancelled");
+          } catch (readerErr) {
+            console.log("Reader cancel error (non-critical):", readerErr);
           }
-
-          // Close the port
-          if (port) {
-            await port.close();
-          }
-
-          // Reset the connection state
-          isConnected = false;
-          port = null;
-          writer = null;
-          reader = null;
-
-          // Update UI
-          connectButton.disabled = false;
-          disconnectButton.disabled = true;
-          startButton.disabled = true;
-          stopButton.disabled = true;
-
-          // Update status
-          status.innerHTML = "Disconnected from serial port";
-          status.style.color = "#ff9800";
-          output.innerHTML += "<br><i>Disconnected from serial port</i><br>";
-          outputContainer.scrollTop = outputContainer.scrollHeight;
-        } catch (err) {
-          console.error("Disconnect error:", err);
-          status.innerHTML = `Error disconnecting: ${err.message}`;
-          status.style.color = "#ff4444";
         }
+
+        // Release the writer if it exists
+        if (writer) {
+          try {
+            await writer.close();
+            console.log("Writer closed");
+            writer = null;
+          } catch (writerErr) {
+            console.log("Writer close error (non-critical):", writerErr);
+            writer = null;
+          }
+        }
+
+        // Wait a moment for streams to clean up
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Close the port if it exists and is open
+        if (port && port.readable) {
+          try {
+            await port.close();
+            console.log("Port closed");
+          } catch (portErr) {
+            console.log("Port close error (non-critical):", portErr);
+          }
+        }
+
+        // Reset the connection state
+        isConnected = false;
+        port = null;
+        reader = null;
+
+        // Update UI
+        connectButton.disabled = false;
+        disconnectButton.disabled = true;
+        startButton.disabled = true;
+        stopButton.disabled = true;
+
+        // Update status
+        status.innerHTML = "Disconnected from serial port";
+        status.style.color = "#ff9800";
+        output.innerHTML += "<br><i>Disconnected from serial port</i><br>";
+        outputContainer.scrollTop = outputContainer.scrollHeight;
+      } catch (err) {
+        console.error("Disconnect error:", err);
+        status.innerHTML = `Warning during disconnect: ${err.message}. Device disconnected anyway.`;
+        status.style.color = "#ff9800";
+
+        // Reset everything even if there was an error
+        isConnected = false;
+        port = null;
+        reader = null;
+        writer = null;
+
+        // Update UI
+        connectButton.disabled = false;
+        disconnectButton.disabled = true;
+        startButton.disabled = true;
+        stopButton.disabled = true;
       }
     });
 
@@ -473,14 +510,18 @@
       // Renderer setup
       renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       container.innerHTML = '';
       container.appendChild(renderer.domElement);
 
-      // Controls setup - now THREE.OrbitControls should be available
+      // Controls setup
       try {
         controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.25;
+        controls.enableZoom = true;
+        controls.autoRotate = false;
         console.log("OrbitControls initialized successfully");
       } catch (err) {
         console.error("Error initializing OrbitControls:", err);
@@ -488,17 +529,30 @@
         status.style.color = "#ff4444";
       }
 
-      // Lights
-      const ambientLight = new THREE.AmbientLight(0x404040, 1);
+      // Improved lighting setup
+      // Ambient light for base illumination
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
       scene.add(ambientLight);
 
+      // Add hemisphere light for more natural environmental lighting
+      const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 0.6);
+      scene.add(hemisphereLight);
+
+      // Add key light (main directional light)
       const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
-      directionalLight1.position.set(1, 1, 1);
+      directionalLight1.position.set(5, 10, 7.5);
+      directionalLight1.castShadow = true;
       scene.add(directionalLight1);
 
+      // Add fill light (from opposite side)
       const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.5);
-      directionalLight2.position.set(-1, -1, -1);
+      directionalLight2.position.set(-5, 5, -7.5);
       scene.add(directionalLight2);
+
+      // Add rim light for better edge definition
+      const directionalLight3 = new THREE.DirectionalLight(0xffffff, 0.3);
+      directionalLight3.position.set(0, -10, 0);
+      scene.add(directionalLight3);
 
       // Handle window resize
       window.addEventListener('resize', onWindowResize);
@@ -523,6 +577,13 @@
     }
 
     function loadSTL() {
+      // Wait to ensure STLLoader is fully loaded
+      if (typeof THREE.STLLoader === 'undefined') {
+        console.error("STLLoader not available yet");
+        setTimeout(loadSTL, 500);  // Retry after 500ms
+        return;
+      }
+
       // Create a unique URL with a timestamp to avoid caching
       const stlURL = `/download-stl?t=${new Date().getTime()}`;
 
@@ -545,15 +606,25 @@
         const center = geometry.boundingBox.getCenter(new THREE.Vector3());
         geometry.translate(-center.x, -center.y, -center.z);
 
-        // Create material
-        const material = new THREE.MeshPhongMaterial({
+        // Compute vertex normals if they don't exist
+        if (!geometry.hasAttribute('normal')) {
+          geometry.computeVertexNormals();
+        }
+
+        // Create material with proper settings for a complete 3D view
+        const material = new THREE.MeshStandardMaterial({
           color: 0x4285f4,
-          specular: 0x111111,
-          shininess: 200
+          metalness: 0.3,
+          roughness: 0.6,
+          side: THREE.DoubleSide,  // This is critical to see both sides of the model
+          flatShading: false,      // Use smooth shading
+          shadowSide: THREE.DoubleSide
         });
 
         // Create mesh
         mesh = new THREE.Mesh(geometry, material);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
 
         // Scale to fit view (if needed)
         geometry.computeBoundingSphere();
@@ -599,6 +670,22 @@
     // Add event listeners for viewer controls
     resetViewBtn.addEventListener('click', resetView);
     wireframeToggleBtn.addEventListener('click', toggleWireframe);
+
+    // Ensure that scripts are properly loaded before initialization
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log("DOM fully loaded");
+      // Check if Three.js and its components are loaded
+      if (typeof THREE !== 'undefined') {
+        console.log("THREE is loaded");
+        if (typeof THREE.STLLoader !== 'undefined') {
+          console.log("STLLoader is available");
+        } else {
+          console.warn("STLLoader not available on page load");
+        }
+      } else {
+        console.error("THREE is not loaded!");
+      }
+    });
   </script>
 </body>
 
