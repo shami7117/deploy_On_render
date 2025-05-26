@@ -220,7 +220,7 @@
       <button id="connect">Connect</button>
       <button id="disconnect" disabled>Disconnect</button>
       <button id="start">Start Arduino</button>
-      <!-- <button id="stop" disabled>Stop</button> -->
+      <button id="stop" disabled>Stop</button>
       <button id="save">Save Data</button>
       <button id="process">Process</button>
       <button id="download" disabled>Download STL</button>
@@ -302,10 +302,10 @@
         try {
           // FIRST: Clear the data and display
           serialData = '';
-          output.innerHTML = "Data cleared. Connecting to serial port...<br>";
+          output.innerHTML = "Data cleared. Connecting...<br>";
           outputContainer.scrollTop = outputContainer.scrollHeight;
 
-          // THEN: Proceed with connection
+          // THEN: Proceed with original connection functionality
           port = await navigator.serial.requestPort();
           await port.open({ baudRate: 9600 });
 
@@ -320,8 +320,7 @@
           writer = encoder.writable.getWriter();
 
           output.innerHTML += "Connected.<br>";
-          status.innerHTML = "Data cleared and serial port connected successfully";
-          status.style.color = "#4CAF50";
+          status.innerHTML = "Serial port connected successfully";
           connectButton.disabled = true;
           disconnectButton.disabled = false;
           startButton.disabled = false;
