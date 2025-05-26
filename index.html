@@ -220,7 +220,7 @@
       <button id="connect">Connect</button>
       <button id="disconnect" disabled>Disconnect</button>
       <button id="start">Start Arduino</button>
-      <button id="stop" disabled>Stop</button>
+      <!-- <button id="stop" disabled>Stop</button> -->
       <button id="save">Save Data</button>
       <button id="process">Process</button>
       <button id="download" disabled>Download STL</button>
@@ -297,8 +297,15 @@
         startButton.disabled = true;
       }
 
+      // UPDATED CONNECT BUTTON - Now clears data first, then connects
       connectButton.addEventListener("click", async () => {
         try {
+          // FIRST: Clear the data and display
+          serialData = '';
+          output.innerHTML = "Data cleared. Connecting to serial port...<br>";
+          outputContainer.scrollTop = outputContainer.scrollHeight;
+
+          // THEN: Proceed with connection
           port = await navigator.serial.requestPort();
           await port.open({ baudRate: 9600 });
 
@@ -313,7 +320,8 @@
           writer = encoder.writable.getWriter();
 
           output.innerHTML += "Connected.<br>";
-          status.innerHTML = "Serial port connected successfully";
+          status.innerHTML = "Data cleared and serial port connected successfully";
+          status.style.color = "#4CAF50";
           connectButton.disabled = true;
           disconnectButton.disabled = false;
           startButton.disabled = false;
@@ -431,21 +439,16 @@
         }
       });
 
-      // UPDATED START BUTTON - Now clears data first, then starts
+      // SIMPLIFIED START BUTTON - Now only sends start command
       startButton.addEventListener("click", async () => {
         if (writer) {
           try {
-            // FIRST: Clear the data and display
-            serialData = '';
-            output.innerHTML = "Data cleared. Starting Arduino...<br>";
-            outputContainer.scrollTop = outputContainer.scrollHeight;
-
-            // THEN: Send start command to Arduino
+            // Send start command to Arduino
             await writer.write("start\n");
             output.innerHTML += "<br><i>Sent: start</i><br>";
             outputContainer.scrollTop = outputContainer.scrollHeight;
 
-            status.innerHTML = "Data cleared and start command sent to Arduino";
+            status.innerHTML = "Start command sent to Arduino";
             status.style.color = "#4CAF50";
             saveButton.disabled = false;
             stopButton.disabled = false;
