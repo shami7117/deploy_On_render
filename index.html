@@ -55,15 +55,6 @@
       cursor: not-allowed;
     }
 
-    /* Style for the stop button */
-    #stop {
-      background-color: #f44336;
-    }
-
-    #stop:hover {
-      background-color: #d32f2f;
-    }
-
     /* Style for the disconnect button */
     #disconnect {
       background-color: #ff9800;
@@ -220,7 +211,6 @@
       <button id="connect">Connect</button>
       <button id="disconnect" disabled>Disconnect</button>
       <button id="start">Start Arduino</button>
-      <!-- <button id="stop" disabled>Stop</button> -->
       <button id="save">Save Data</button>
       <button id="process">Process</button>
       <button id="download" disabled>Download STL</button>
@@ -249,29 +239,27 @@
       </div>
     </div>
 
-    <!-- Load Three.js Library and its modules -->
+    <!-- Load Three.js Library and its modules - Updated to newer versions -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r132/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/STLLoader.js"></script>
 
     <script>
-      let port = null;
-      let writer = null;
-      let reader = null;
-      let readableStreamClosed = null;
-      let writableStreamClosed = null;
+      let port;
+      let writer;
+      let reader;
+      let readableStreamClosed;
+      let writableStreamClosed;
       let serialData = '';
       let hasProcessedData = false;
       let scene, camera, renderer, controls, mesh;
       let wireframeMode = false;
       let isConnected = false;
-      let isReading = false;
-      let readController = null;
+      let isReaderActive = false;
 
       const connectButton = document.getElementById("connect");
       const disconnectButton = document.getElementById("disconnect");
       const startButton = document.getElementById("start");
-      const stopButton = document.getElementById("stop");
       const saveButton = document.getElementById("save");
       const processButton = document.getElementById("process");
       const downloadButton = document.getElementById("download");
@@ -285,280 +273,176 @@
 
       // Initialize buttons state
       startButton.disabled = true;
-      stopButton.disabled = true;
       processButton.disabled = true;
       saveButton.disabled = true;
 
       // Check if browser supports Web Serial API
       if (!navigator.serial) {
-        status.innerHTML = "Web Serial API not supported. Please use Chrome, Edge, or Opera with HTTPS.";
+        status.innerHTML = "Web Serial API not supported in this browser. Try Chrome or Edge.";
         status.style.color = "#ff4444";
         connectButton.disabled = true;
         disconnectButton.disabled = true;
         startButton.disabled = true;
-      } else {
-        status.innerHTML = "Ready to connect. Make sure your device is plugged in.";
-        status.style.color = "#4CAF50";
       }
 
-      // FIXED CONNECT BUTTON - Better error handling and stream management
       connectButton.addEventListener("click", async () => {
         try {
-          // Clear any existing connection first
-          if (isConnected) {
-            await disconnect();
-          }
-
-          // Clear the data and display
+          // FIRST: Clear the data and display (moved from start button)
           serialData = '';
-          output.innerHTML = "Requesting port selection...<br>";
-          outputContainer.scrollTop = outputContainer.scrollHeight;
-          status.innerHTML = "Select your Arduino from the port list...";
-
-          // Request port with better error handling
-          try {
-            port = await navigator.serial.requestPort();
-            output.innerHTML += "Port selected. Opening connection...<br>";
-            outputContainer.scrollTop = outputContainer.scrollHeight;
-          } catch (selectionError) {
-            if (selectionError.name === 'NotFoundError') {
-              throw new Error("No port selected. Please select your Arduino device.");
-            } else {
-              throw selectionError;
-            }
-          }
-
-          // Open port with proper configuration
-          await port.open({
-            baudRate: 9600,
-            dataBits: 8,
-            stopBits: 1,
-            parity: "none",
-            flowControl: "none"
-          });
-
-          output.innerHTML += "Port opened. Setting up data streams...<br>";
+          output.innerHTML = "Data cleared. Connecting to serial port...<br>";
           outputContainer.scrollTop = outputContainer.scrollHeight;
 
-          // Set up readable stream
-          const textDecoder = new TextDecoderStream();
-          readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
-          reader = textDecoder.readable.getReader();
+          // THEN: Continue with original connect functionality
+          port = await navigator.serial.requestPort();
+          await port.open({ baudRate: 9600 });
 
-          // Set up writable stream
-          const textEncoder = new TextEncoderStream();
-          writableStreamClosed = textEncoder.readable.pipeTo(port.writable);
-          writer = textEncoder.writable.getWriter();
+          const decoder = new TextDecoderStream();
+          readableStreamClosed = port.readable.pipeTo(decoder.writable);
+          const inputStream = decoder.readable;
+          reader = inputStream.getReader();
+          isReaderActive = true;
 
-          // Update connection state
-          isConnected = true;
+          const encoder = new TextEncoderStream();
+          writableStreamClosed = encoder.readable.pipeTo(port.writable);
+          writer = encoder.writable.getWriter();
 
-          // Update UI
-          output.innerHTML += "✓ Connected successfully!<br>";
-          status.innerHTML = "Serial port connected. Ready to communicate with Arduino.";
-          status.style.color = "#4CAF50";
+          output.innerHTML += "Connected.<br>";
+          status.innerHTML = "Serial port connected successfully";
           connectButton.disabled = true;
           disconnectButton.disabled = false;
           startButton.disabled = false;
+          isConnected = true;
 
-          // Start reading in background
-          startReading();
-
-        } catch (error) {
-          console.error("Connection error:", error);
-          let errorMsg = error.message || "Unknown connection error";
-
-          // Provide specific error messages
-          if (error.name === 'NetworkError') {
-            errorMsg = "Device connection failed. Check if the device is plugged in and not used by another application.";
-          } else if (error.name === 'InvalidStateError') {
-            errorMsg = "Port is already open or in use by another application.";
-          } else if (error.name === 'NotFoundError') {
-            errorMsg = "No device selected or device not found.";
-          }
-
-          output.innerHTML += `<br><strong style="color: #ff4444;">Connection Error:</strong> ${errorMsg}<br>`;
-          status.innerHTML = `Connection failed: ${errorMsg}`;
+          // Start reading loop
+          readLoop();
+        } catch (err) {
+          console.error("Error:", err);
+          output.innerHTML += `<br><b>Error:</b> ${err.message}`;
+          status.innerHTML = `Error: ${err.message}`;
           status.style.color = "#ff4444";
-
-          // Clean up on error
-          await cleanupConnection();
         }
       });
 
-      // Improved reading function with better error handling
-      async function startReading() {
-        if (isReading) return;
-
-        isReading = true;
-        readController = new AbortController();
-
+      // Function to continuously read from the serial port
+      async function readLoop() {
         try {
-          while (isReading && isConnected && reader) {
+          while (isReaderActive) {
             const { value, done } = await reader.read();
-
             if (done) {
-              console.log("Reading completed");
+              console.log("Reader done");
               break;
             }
-
-            if (value && value.length > 0) {
-              // Sanitize the value for HTML display
+            if (value) {
               const safeValue = value.replace(/</g, "&lt;").replace(/>/g, "&gt;");
               output.innerHTML += safeValue.replace(/\n/g, "<br>");
               outputContainer.scrollTop = outputContainer.scrollHeight;
-
-              // Store raw data
               serialData += value;
             }
           }
         } catch (error) {
-          if (error.name !== 'AbortError' && isConnected) {
-            console.error("Reading error:", error);
-            output.innerHTML += `<br><strong style="color: #ff9800;">Read Error:</strong> ${error.message}<br>`;
-            status.innerHTML = "Error reading from device. Connection may be unstable.";
-            status.style.color = "#ff9800";
+          console.error("Read loop error:", error);
+          if (isConnected) {
+            output.innerHTML += `<br><b>Error during read:</b> ${error.message}`;
           }
         } finally {
-          isReading = false;
-          console.log("Reading stopped");
+          console.log("Read loop exited");
         }
       }
 
-      // Improved disconnect function
-      async function disconnect() {
+      // Improved disconnect button handler with safety checks
+      disconnectButton.addEventListener("click", async () => {
         try {
-          // Stop reading
-          isReading = false;
-          if (readController) {
-            readController.abort();
-          }
+          // Set flag to exit read loop
+          isReaderActive = false;
 
-          // Close reader
+          // Cancel reader first if it exists
           if (reader) {
             try {
               await reader.cancel();
-            } catch (e) {
-              console.log("Reader cancel error (non-critical):", e);
+              console.log("Reader cancelled");
+            } catch (readerErr) {
+              console.log("Reader cancel error (non-critical):", readerErr);
             }
-            reader = null;
           }
 
-          // Close writer
+          // Release the writer if it exists
           if (writer) {
             try {
               await writer.close();
-            } catch (e) {
-              console.log("Writer close error (non-critical):", e);
-            }
-            writer = null;
-          }
-
-          // Wait for streams to close
-          if (readableStreamClosed) {
-            try {
-              await readableStreamClosed;
-            } catch (e) {
-              console.log("Readable stream close error (non-critical):", e);
+              console.log("Writer closed");
+              writer = null;
+            } catch (writerErr) {
+              console.log("Writer close error (non-critical):", writerErr);
+              writer = null;
             }
           }
 
-          if (writableStreamClosed) {
-            try {
-              await writableStreamClosed;
-            } catch (e) {
-              console.log("Writable stream close error (non-critical):", e);
-            }
-          }
+          // Wait a moment for streams to clean up
+          await new Promise(resolve => setTimeout(resolve, 100));
 
-          // Close port
-          if (port) {
+          // Close the port if it exists and is open
+          if (port && port.readable) {
             try {
               await port.close();
-            } catch (e) {
-              console.log("Port close error (non-critical):", e);
+              console.log("Port closed");
+            } catch (portErr) {
+              console.log("Port close error (non-critical):", portErr);
             }
-            port = null;
           }
 
-        } catch (error) {
-          console.error("Disconnect error:", error);
-        } finally {
-          await cleanupConnection();
+          // Reset the connection state
+          isConnected = false;
+          port = null;
+          reader = null;
+
+          // Update UI
+          connectButton.disabled = false;
+          disconnectButton.disabled = true;
+          startButton.disabled = true;
+
+          // Update status
+          status.innerHTML = "Disconnected from serial port";
+          status.style.color = "#ff9800";
+          output.innerHTML += "<br><i>Disconnected from serial port</i><br>";
+          outputContainer.scrollTop = outputContainer.scrollHeight;
+        } catch (err) {
+          console.error("Disconnect error:", err);
+          status.innerHTML = `Warning during disconnect: ${err.message}. Device disconnected anyway.`;
+          status.style.color = "#ff9800";
+
+          // Reset everything even if there was an error
+          isConnected = false;
+          port = null;
+          reader = null;
+          writer = null;
+
+          // Update UI
+          connectButton.disabled = false;
+          disconnectButton.disabled = true;
+          startButton.disabled = true;
         }
-      }
-
-      // Clean up connection state
-      async function cleanupConnection() {
-        isConnected = false;
-        isReading = false;
-        port = null;
-        reader = null;
-        writer = null;
-        readableStreamClosed = null;
-        writableStreamClosed = null;
-        readController = null;
-
-        // Update UI
-        connectButton.disabled = false;
-        disconnectButton.disabled = true;
-        startButton.disabled = true;
-        stopButton.disabled = true;
-      }
-
-      // Disconnect button event listener
-      disconnectButton.addEventListener("click", async () => {
-        output.innerHTML += "<br><i>Disconnecting...</i><br>";
-        status.innerHTML = "Disconnecting from device...";
-        status.style.color = "#ff9800";
-
-        await disconnect();
-
-        output.innerHTML += "<br><i>✓ Disconnected from serial port</i><br>";
-        outputContainer.scrollTop = outputContainer.scrollHeight;
-        status.innerHTML = "Disconnected. Ready to connect to a new device.";
-        status.style.color = "#4CAF50";
       });
 
-      // Send command helper function
-      async function sendCommand(command) {
-        if (!writer || !isConnected) {
+      // SIMPLIFIED START BUTTON - Now only sends start command
+      startButton.addEventListener("click", async () => {
+        if (writer) {
+          try {
+            // Send start command to Arduino
+            await writer.write("start\n");
+            output.innerHTML += "<br><i>Sent: start</i><br>";
+            outputContainer.scrollTop = outputContainer.scrollHeight;
+
+            status.innerHTML = "Start command sent to Arduino";
+            status.style.color = "#4CAF50";
+            saveButton.disabled = false;
+          } catch (err) {
+            console.error("Start error:", err);
+            status.innerHTML = `Error starting Arduino: ${err.message}`;
+            status.style.color = "#ff4444";
+          }
+        } else {
           status.innerHTML = "Please connect to a serial port first";
           status.style.color = "#ff4444";
-          return false;
-        }
-
-        try {
-          await writer.write(command + "\n");
-          output.innerHTML += `<br><i style="color: #4CAF50;">Sent: ${command}</i><br>`;
-          outputContainer.scrollTop = outputContainer.scrollHeight;
-          return true;
-        } catch (error) {
-          console.error("Send command error:", error);
-          output.innerHTML += `<br><strong style="color: #ff4444;">Send Error:</strong> ${error.message}<br>`;
-          status.innerHTML = `Error sending command: ${error.message}`;
-          status.style.color = "#ff4444";
-          return false;
-        }
-      }
-
-      // START BUTTON
-      startButton.addEventListener("click", async () => {
-        const success = await sendCommand("start");
-        if (success) {
-          status.innerHTML = "Start command sent to Arduino";
-          status.style.color = "#4CAF50";
-          saveButton.disabled = false;
-          stopButton.disabled = false;
-        }
-      });
-
-      // STOP BUTTON
-      stopButton.addEventListener("click", async () => {
-        const success = await sendCommand("stop");
-        if (success) {
-          status.innerHTML = "Stop command sent to Arduino";
-          status.style.color = "#4CAF50";
         }
       });
 
@@ -806,20 +690,6 @@
       // Add event listeners for viewer controls
       resetViewBtn.addEventListener('click', resetView);
       wireframeToggleBtn.addEventListener('click', toggleWireframe);
-
-      // Handle page visibility change to prevent issues when tab is hidden
-      document.addEventListener('visibilitychange', () => {
-        if (document.hidden && isConnected) {
-          console.log('Page hidden, connection may be affected');
-        }
-      });
-
-      // Handle page unload to clean up connections
-      window.addEventListener('beforeunload', async () => {
-        if (isConnected) {
-          await disconnect();
-        }
-      });
 
       // Initialize the viewer once the DOM is loaded but don't load an STL yet
       document.addEventListener('DOMContentLoaded', () => {
